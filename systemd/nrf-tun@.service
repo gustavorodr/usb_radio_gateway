@@ -1,0 +1,15 @@
+[Unit]
+Description=NRF24L01 TUN link (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/gustavo/Documents/usb_radio_gateway
+ExecStart=/usr/bin/python3 -m nrf_tun --role %i --tun tun0 --channel 0x76 --ce-pin D25 --csn-pin D8 --tx-addr E0E0F1F1E0 --rx-addr F1F1F0F0E0 --rate 1000000 --pa -6
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
