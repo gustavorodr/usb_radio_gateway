@@ -153,68 +153,6 @@ Default control pin: GPIO17 (configurable via `SWITCH_GPIO`)
 | [USB_GADGET.md](docs/USB_GADGET.md) | USB gadget configuration details |
 | [CLEANUP.md](docs/CLEANUP.md) | File inventory and usage |
 
----
-
-## Project Structure
-
-```
-usb_radio_gateway/
-├── src/
-│   ├── nrf_tun/          # Python radio tunnel (userspace)
-│   ├── orchestrator/      # Master/slave control daemons
-│   ├── touch/            # Touchscreen capture/injection
-│   └── gadget/           # USB gadget utilities
-├── scripts/
-│   ├── start_master.sh   # Master startup
-│   ├── start_slave.sh    # Slave startup
-│   ├── install.sh        # Dependencies installer
-│   ├── touch/            # Touchscreen setup scripts
-│   ├── wifi/             # Wi-Fi Ad-Hoc configuration
-│   └── gadget/           # USB gadget/OTG setup
-├── kernel/
-│   └── nrf24_net/        # Kernel driver (optional, low latency)
-└── docs/                 # Documentation
-```
-
----
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| **Radio link not working** | Check nRF24 wiring, verify SPI enabled (`ls /dev/spidev*`), test with `ping` |
-| **USB switch not responding** | Verify GPIO pin number, check relay wiring/polarity |
-| **USB/IP connection fails** | Ensure `usbipd` running on slave, `modprobe vhci-hcd` on master |
-| **Gadget not enumerating** | Check OTG configuration, use Pi Zero/CM4 with OTG port |
-| **Touchscreen not detected** | Run `sudo ./scripts/touch/setup_touch.sh`, check `/dev/input/event*` |
-
-📖 **Detailed troubleshooting:** See individual documentation files
-
----
-
-## Security & Legal
-
-⚠️ **This tool is for authorized testing only**
-
-- Requires explicit permission for penetration testing
-- Cloning commercial device VID/PID may violate regulations
-- Radio traffic is unencrypted (use WireGuard VPN if needed)
-- Intended for TSE authorized tests: https://www.tse.jus.br/eleicoes/tpu
-
----
-
-## License
-
-See [LICENSE](LICENSE) file.
-
----
-
-## References
-
-- Linux USB Gadget: https://kernel.org/doc/html/latest/usb/gadget.html
-- USB/IP Protocol: http://usbip.sourceforge.net
-- nRF24L01 Datasheet: Nordic Semiconductor
-- TSE Public Tests: https://www.tse.jus.br/eleicoes/tpu
 
 ---
 
@@ -281,25 +219,6 @@ Automatically configured by startup scripts. Scripts in `scripts/wifi/` set up A
 
 Scripts in `scripts/gadget/` handle OTG setup and HID gadget creation. For device-specific emulation, modify VID/PID in `create_hid_gadget.sh`.
 
----
-
-## Troubleshooting
-
-- **Link not up**: Check nRF24 wiring, verify SPI enabled (`ls /dev/spidev*`), ping peer IP
-- **USB switch not working**: Verify GPIO pin number, check relay polarity
-- **USB/IP fails**: Ensure `usbipd` running on server, `modprobe vhci-hcd` on client
-- **Gadget not enumerating**: Check OTG config, use Pi Zero/CM with OTG-capable port
-
----
-
-## Security & Legal
-
-- **Authorization required**: This tool is for authorized penetration testing only
-- Traffic over radio is **unencrypted**; add VPN (WireGuard) if needed
-- Cloning commercial device VID/PID may be restricted by law
-
----
-
 ## Project Structure
 
 ```
@@ -324,11 +243,38 @@ usb_radio_gateway/
 
 ---
 
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| **Radio link not working** | Check nRF24 wiring, verify SPI enabled (`ls /dev/spidev*`), test with `ping` |
+| **USB switch not responding** | Verify GPIO pin number, check relay wiring/polarity |
+| **USB/IP connection fails** | Ensure `usbipd` running on slave, `modprobe vhci-hcd` on master |
+| **Gadget not enumerating** | Check OTG configuration, use Pi Zero/CM4 with OTG port |
+| **Touchscreen not detected** | Run `sudo ./scripts/touch/setup_touch.sh`, check `/dev/input/event*` |
+
+📖 **Detailed troubleshooting:** See individual documentation files
+
+---
+
+## Security & Legal
+
+⚠️ **This tool is for authorized testing only**
+
+- Requires explicit permission for penetration testing
+- Cloning commercial device VID/PID may violate regulations
+- Radio traffic is unencrypted (use WireGuard VPN if needed)
+- Intended for TSE authorized tests: https://www.tse.jus.br/eleicoes/tpu
+
+
+---
+
 ## References
 
-- TSE public pentest: https://www.tse.jus.br/eleicoes/tpu
 - Linux USB Gadget: https://kernel.org/doc/html/latest/usb/gadget.html
-- USB/IP: http://usbip.sourceforge.net
+- USB/IP Protocol: http://usbip.sourceforge.net
+- nRF24L01 Datasheet: Nordic Semiconductor
+- TSE Public Tests: https://www.tse.jus.br/eleicoes/tpu
 
 If you need the Raspberry Pi to appear as a USB device to a host when the real peripheral is unplugged (maintenance window), use the Linux USB Gadget subsystem:
 
