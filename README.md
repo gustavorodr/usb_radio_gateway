@@ -1,218 +1,341 @@
-# usb_radio_gateway
-This repository is a exploit project for the brazilian eletronic voting sistem, This pentes is authorized for the public tests in 2025. https://www.tse.jus.br/eleicoes/tpu
+# USB Radio Gateway
 
+**Man-in-the-Middle gateway for USB devices over radio links**
 
-## USB-over-IP via nRF24L01 between two Raspberry Pis
-
-This project provides a working, minimal tunnel that carries IP packets over an nRF24L01 2.4GHz radio link between two Raspberry Pis. Once the IP link is up, you can run USB/IP on top to share a USB device from one Pi to the other without Wi‑Fi/Ethernet.
-
-What you get:
-
-- A Python tunnel daemon that bridges a TUN interface to the nRF24L01 (32-byte frames with fragmentation/reassembly)
-- Shell scripts to set up TUN addresses and run the tunnel on each endpoint
-- Optional systemd service to auto-start the tunnel
-- USB/IP helper scripts for server/client
-
-Limitations and notes:
-
-- nRF24L01 has small frames (32 bytes) and modest data rates (250 kbps – 2 Mbps). Expect low throughput and higher latency vs Wi‑Fi.
-- The link is point-to-point and unencrypted. Use at your own risk; add a VPN if you need confidentiality.
-- Requires SPI enabled on both Pis and proper wiring of the nRF24L01 modules.
+Authorized penetration testing project for Brazilian electronic voting system (TSE): https://www.tse.jus.br/eleicoes/tpu
 
 ---
 
-## Hardware wiring (Raspberry Pi + nRF24L01)
+## Overview
 
-Default pins used by the tunnel (BCM):
+Two Raspberry Pis communicate via low-latency radio (nRF24L01+) and Wi-Fi backup to create a **transparent wireless bridge** between USB devices and host systems. Designed for security research, protocol analysis, and penetration testing.
 
-- CE -> GPIO25
-- CSN (chip select) -> CE0 (GPIO8)
-- SCK -> GPIO11
-- MOSI -> GPIO10
-- MISO -> GPIO9
-- Vcc -> 3.3V (never 5V)
-- GND -> GND
+### Key Features
 
-You can change CE/CSN via CLI flags `--ce-pin` and `--csn-pin` (e.g., `D25`, `D8`).
+- 🔗 **Dual wireless links** with automatic failover (nRF24L01 primary, Wi-Fi backup)
+- 🔌 **USB forwarding** over radio (USB/IP protocol)
+- 📱 **Touchscreen forwarding** with ~1.5ms latency (evdev → radio → uinput)
+- 🎭 **USB gadget emulation** for device presence when disconnected
+- 🔍 **USB traffic sniffing** and protocol analysis
+- 🎚️ **Hardware USB switching** via GPIO (slave toggles between real device and gadget)
+- 🌐 **Remote control protocol** (master commands slave mode changes)
 
-Enable SPI on each Pi:
+### Use Cases
 
-1) Edit `/boot/config.txt` (or `/boot/firmware/config.txt` on newer RPi OS) and ensure this line exists:
-
-```
-dtparam=spi=on
-```
-
-2) Reboot the Pi.
+- Transparent USB device relay over wireless
+- USB protocol analysis and traffic capture
+- Security testing of USB authentication systems
+- Remote biometric sensor operation
+- Touchscreen forwarding for remote displays
 
 ---
 
-## Software install
+## Quick Start
 
-On each Pi, run (as root):
+---
 
-```
+## Quick Start
+
+### 1. Installation
+
+```bash
+git clone https://github.com/gustavorodr/usb_radio_gateway
+cd usb_radio_gateway
 sudo ./scripts/install.sh
+sudo reboot
 ```
 
-This installs Python deps and enables SPI. Reboot if SPI was newly enabled.
+### 2. Hardware Setup
+
+**Both Pis**: Connect nRF24L01+ module to SPI pins (see [Hardware Wiring](#hardware-wiring))
+
+**Slave Pi only**: Connect GPIO relay for USB switching (default: GPIO17)
+
+### 3. Start System
+
+**Master Pi:**
+```bash
+# USB forwarding mode
+MODE=forward PEER_IP=10.24.0.2 ./scripts/start_master.sh
+
+# Or sniffing mode
+MODE=sniff PEER_IP=10.24.0.2 ./scripts/start_master.sh
+```
+
+**Slave Pi:**
+```bash
+# Passive mode (real device, monitor traffic)
+MODE=passive PEER_IP=10.24.0.1 SWITCH_GPIO=17 ./scripts/start_slave.sh
+
+# Or active mode (gadget emulation)
+MODE=active PEER_IP=10.24.0.1 SWITCH_GPIO=17 ./scripts/start_slave.sh
+```
+
+### 4. Remote Control (Optional)
+
+```bash
+# Switch slave to active mode
+python3 -m orchestrator.control_protocol client \
+  --peer-ip 10.24.0.2 \
+  --cmd '{"cmd":"set_mode","mode":"active"}'
+```
 
 ---
 
-## Bring up the IP-over-radio link
-
-We create a TUN interface `tun0` on each Pi with a /30 point-to-point network (10.24.0.1 <-> 10.24.0.2).
-
-Pi A:
+## Architecture
 
 ```
-./scripts/setup_tun_a.sh
-./scripts/run_tunnel_a.sh
+┌─────────────┐                    ┌──────────────┐
+│  Master Pi  │   nRF24L01 Radio   │   Slave Pi   │
+│             │ ◄────────────────► │              │
+│ USB Gadget  │   Wi-Fi Backup     │  Real Device │
+│   (Host)    │ ◄- - - - - - - - → │   + Switch   │
+└─────────────┘                    └──────────────┘
 ```
 
-Pi B:
+**Master modes:**
+- `forward`: Receives USB/IP from slave, presents gadget to local host
+- `sniff`: Receives USB traffic captures from slave for analysis
 
-```
-./scripts/setup_tun_b.sh
-./scripts/run_tunnel_b.sh
-```
+**Slave modes:**
+- `passive`: Real device connected, Pi monitors traffic
+- `active`: Pi gadget connected (via USB switch), USB/IP server
 
-Test connectivity once both tunnels are running:
+**Wireless:**
+- Primary: nRF24L01+ (kernel or Python tunnel, <2ms latency)
+- Backup: Wi-Fi Ad-Hoc 5GHz (automatic failover when primary fails)
 
-```
-ping -c 3 10.24.0.1   # from Pi B
-ping -c 3 10.24.0.2   # from Pi A
-```
+**Touchscreen:** Optional evdev capture → radio → uinput injection (~1.5ms latency)
 
-If pings work, the IP tunnel over radio is up.
+📖 **Full details:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
-## Optional: Auto-start with systemd
+## Hardware Wiring
 
-Copy the unit and enable it. On each Pi:
+### nRF24L01+ Module (Both Pis)
 
-```
-sudo cp systemd/nrf-tun@.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now nrf-tun@a.service   # on Pi A
-sudo systemctl enable --now nrf-tun@b.service   # on Pi B
-```
+Connect to SPI pins (BCM numbering):
 
-Edit the unit if you need different pins, addresses, or channel.
+| nRF24 Pin | Pi Pin | BCM |
+|-----------|--------|-----|
+| VCC | 3.3V | - |
+| GND | GND | - |
+| CE | Pin 22 | GPIO25 |
+| CSN | Pin 24 | GPIO8 (CE0) |
+| SCK | Pin 23 | GPIO11 |
+| MOSI | Pin 19 | GPIO10 |
+| MISO | Pin 21 | GPIO9 |
 
----
+**⚠️ Important:** Use 3.3V, NOT 5V!
 
-## Run USB/IP over the radio link
+Enable SPI: Add `dtparam=spi=on` to `/boot/config.txt` (or `/boot/firmware/config.txt`), then reboot.
 
-On Pi A (server, with the USB device plugged in):
+### USB Hardware Switch (Slave Pi Only)
 
-```
-sudo ./scripts/usbip_server.sh <BUSID>
-```
+Use GPIO-controlled relay to route USB D+/D- between:
+- **Passive**: Real device ↔ Target board
+- **Active**: Pi gadget ↔ Target board
 
-- Find `<BUSID>` via `usbip list -l` (e.g., `1-1`).
-- This starts `usbipd` and binds the device.
+Default control pin: GPIO17 (configurable via `SWITCH_GPIO`)
 
-On Pi B (client):
-
-```
-sudo ./scripts/usbip_client.sh 10.24.0.1 <BUSID>
-```
-
-Then verify on Pi B with `lsusb` and/or by accessing the device as if locally attached.
+📖 **Wiring diagrams:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
-## Configuration knobs
+## Documentation
 
-The tunnel CLI supports:
-
-- `--role` a|b (or server|client) to select which address is used for TX/RX
-- `--channel` (default 0x76)
-- `--ce-pin`, `--csn-pin` (default D25 and D8)
-- `--tx-addr`, `--rx-addr` (5-byte pipe addresses in hex, default E0E0F1F1E0 / F1F1F0F0E0)
-- `--rate` (250000, 1000000, 2000000)
-- `--pa` power level in dBm (-18, -12, -6, 0)
-
-You can edit `scripts/run_tunnel_*.sh` or the systemd unit to change these.
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Complete system design, modes, diagrams |
+| [TOUCHSCREEN.md](docs/TOUCHSCREEN.md) | Touchscreen forwarding setup and API |
+| [LATENCY.md](docs/LATENCY.md) | Latency optimization guide |
+| [USB_GADGET.md](docs/USB_GADGET.md) | USB gadget configuration details |
+| [CLEANUP.md](docs/CLEANUP.md) | File inventory and usage |
 
 ---
 
-## How it works (design brief)
+## Project Structure
 
-- The Python daemon opens `/dev/net/tun` (no PI) and an nRF24L01 radio.
-- IP packets from `tun0` are fragmented into 32-byte radio frames with a tiny header (msg_id, frag_idx, frag_count), sent over the air.
-- The peer collects fragments, reassembles the packet, and writes it into its `tun0` device.
-- With the /30 configuration, you get an IP link suitable for TCP/UDP and thus USB/IP.
-
-Edge cases handled:
-
-- Fragment reassembly with timeout and GC (drops stale partial messages)
-- Bounded TX queue with drop-tail under overload
-- Simple retries at radio level using auto-ack
+```
+usb_radio_gateway/
+├── src/
+│   ├── nrf_tun/          # Python radio tunnel (userspace)
+│   ├── orchestrator/      # Master/slave control daemons
+│   ├── touch/            # Touchscreen capture/injection
+│   └── gadget/           # USB gadget utilities
+├── scripts/
+│   ├── start_master.sh   # Master startup
+│   ├── start_slave.sh    # Slave startup
+│   ├── install.sh        # Dependencies installer
+│   ├── touch/            # Touchscreen setup scripts
+│   ├── wifi/             # Wi-Fi Ad-Hoc configuration
+│   └── gadget/           # USB gadget/OTG setup
+├── kernel/
+│   └── nrf24_net/        # Kernel driver (optional, low latency)
+└── docs/                 # Documentation
+```
 
 ---
 
 ## Troubleshooting
 
-- SPI not found: ensure `dtparam=spi=on`, reboot, and `ls /dev/spidev*` shows devices.
-- No radio packets: check 3.3V supply and wiring (CE=GPIO25, CSN=GPIO8/CE0).
-- Ping drops/slow: lower data rate (`--rate 250000`), increase PA (`--pa 0`), reduce interference (change `--channel`).
-- USB/IP attach fails: verify `ping 10.24.0.1` works from Pi B, confirm port 3240 is reachable, and BUSID is correct.
+| Issue | Solution |
+|-------|----------|
+| **Radio link not working** | Check nRF24 wiring, verify SPI enabled (`ls /dev/spidev*`), test with `ping` |
+| **USB switch not responding** | Verify GPIO pin number, check relay wiring/polarity |
+| **USB/IP connection fails** | Ensure `usbipd` running on slave, `modprobe vhci-hcd` on master |
+| **Gadget not enumerating** | Check OTG configuration, use Pi Zero/CM4 with OTG port |
+| **Touchscreen not detected** | Run `sudo ./scripts/touch/setup_touch.sh`, check `/dev/input/event*` |
+
+📖 **Detailed troubleshooting:** See individual documentation files
 
 ---
 
-## Security
+## Security & Legal
 
-Traffic over the nRF24L01 link is unencrypted and trivially sniffable/spoofable within range. For sensitive use, run a VPN (e.g., WireGuard) across `tun0` before running USB/IP, or adapt the code to add authenticated encryption.
+⚠️ **This tool is for authorized testing only**
 
----
-
-## Kernel path for ultra‑baixa latência (nRF24 em kernel)
-
-Se a latência mínima é crítica para cargas pequenas (até ~128 bytes), mova o caminho de dados para dentro do kernel (evita overhead de userspace e cópias extras):
-
-Conteúdo inicial incluído em `kernel/nrf24_net/`:
-
-- `nrf24_net.c`: módulo de kernel que registra uma interface `nrf0` (net_device) e fornece esqueleto de TX/RX via SPI.
-- `Makefile`: Kbuild para compilar fora da árvore.
-
-Como compilar no Raspberry Pi (requer headers do kernel):
-
-```
-sudo apt-get update && sudo apt-get install -y raspberrypi-kernel-headers build-essential
-cd kernel/nrf24_net
-make
-sudo insmod nrf24_net.ko
-ip link show nrf0
-```
-
-Notas importantes:
-
-- O arquivo é um esqueleto: as funções `nrf24_hw_*` precisam ser conectadas ao SPI real (via `spi_sync`) e a re‑montagem dos frames deve emitir `skb`s em RX (`netif_rx`).
-- Sugere-se definir um node DT `nordic,nrf24l01` no SPI0/CE0 e mapear CE/CSN/IRQ no overlay.
-- Essa abordagem remove Python/userspace do caminho quente, reduzindo jitter; combine com um kernel RT para latência mais estável.
+- Requires explicit permission for penetration testing
+- Cloning commercial device VID/PID may violate regulations
+- Radio traffic is unencrypted (use WireGuard VPN if needed)
+- Intended for TSE authorized tests: https://www.tse.jus.br/eleicoes/tpu
 
 ---
 
-## Alternativa: Wi‑Fi P2P/Ad‑Hoc de baixa latência
+## License
 
-Para payloads maiores (>= 1 KiB) ou quando se deseja simplicidade com IP, o Wi‑Fi otimizado pode atingir RTT estável de ~1–3 ms no RPi quando ajustado:
+See [LICENSE](LICENSE) file.
 
-Scripts incluídos em `scripts/wifi/`:
+---
 
-- `adhoc_low_latency_a.sh` e `_b.sh`: configuram IBSS (Ad‑Hoc) em 5 GHz, desativam power save e offloads (GRO/GSO/TSO) que aumentam jitter.
+## References
 
-Uso (em cada Pi):
+- Linux USB Gadget: https://kernel.org/doc/html/latest/usb/gadget.html
+- USB/IP Protocol: http://usbip.sourceforge.net
+- nRF24L01 Datasheet: Nordic Semiconductor
+- TSE Public Tests: https://www.tse.jus.br/eleicoes/tpu
+
+---
+
+## Architecture Overview
+
+**See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for complete details.**
+
+**Wireless Links** (automatic failover):
+1. nRF24L01 (primary): kernel driver or Python tunnel (~1–2 ms RTT)
+2. Wi-Fi Ad-Hoc (backup): 5 GHz optimized (~2–3 ms RTT)
+
+**Slave Modes:**
+- **Passive**: Real sensor → target board; Pi monitors USB traffic
+- **Active**: Pi USB gadget → target board; USB/IP server shares to master
+
+**Master Modes:**
+- **Forward**: USB/IP client to slave + gadget to master's board
+- **Sniff**: Listen to slave's USB captures for analysis
+
+---
+
+## Hardware Wiring
+
+### nRF24L01 (Both Pis)
+
+Default pins (BCM):
+- CE → GPIO25
+- CSN → CE0 (GPIO8)
+- SCK → GPIO11
+- MOSI → GPIO10
+- MISO → GPIO9
+- VCC → 3.3V (never 5V!)
+- GND → GND
+
+Enable SPI: Edit `/boot/config.txt` or `/boot/firmware/config.txt`, add `dtparam=spi=on`, then reboot.
+
+### USB Hardware Switch (Slave Pi Only)
+
+Use GPIO-controlled relay/optocoupler to route USB D+/D- between:
+- **Passive**: Real sensor ↔ target board
+- **Active**: Pi USB gadget ↔ target board
+
+Example: GPIO17 HIGH = active mode, LOW = passive mode
+
+---
+
+## Advanced Options
+
+### Kernel nRF24 (Ultra-Low Latency)
+
+For sub-millisecond latency, use the kernel driver instead of Python:
+
+```bash
+sudo ./scripts/build_nrf24_kernel.sh
+```
+
+See `kernel/nrf24_net/` for skeleton code. Wire SPI functions and create Device Tree overlay.
+
+### Wi-Fi Backup Link
+
+Automatically configured by startup scripts. Scripts in `scripts/wifi/` set up Ad-Hoc mode with power save disabled.
+
+### USB Gadget Configuration
+
+Scripts in `scripts/gadget/` handle OTG setup and HID gadget creation. For device-specific emulation, modify VID/PID in `create_hid_gadget.sh`.
+
+---
+
+## Troubleshooting
+
+- **Link not up**: Check nRF24 wiring, verify SPI enabled (`ls /dev/spidev*`), ping peer IP
+- **USB switch not working**: Verify GPIO pin number, check relay polarity
+- **USB/IP fails**: Ensure `usbipd` running on server, `modprobe vhci-hcd` on client
+- **Gadget not enumerating**: Check OTG config, use Pi Zero/CM with OTG-capable port
+
+---
+
+## Security & Legal
+
+- **Authorization required**: This tool is for authorized penetration testing only
+- Traffic over radio is **unencrypted**; add VPN (WireGuard) if needed
+- Cloning commercial device VID/PID may be restricted by law
+
+---
+
+## Project Structure
 
 ```
-./scripts/wifi/adhoc_low_latency_a.sh   # Pi A -> 10.25.0.1/30
-./scripts/wifi/adhoc_low_latency_b.sh   # Pi B -> 10.25.0.2/30
-ping -c 5 10.25.0.1   # a partir do Pi B
+usb_radio_gateway/
+├── src/
+│   ├── nrf_tun/          # Python tunnel (userspace radio link)
+│   ├── orchestrator/      # Master/slave orchestrator
+│   └── gadget/           # USB gadget utilities
+├── scripts/
+│   ├── start_master.sh   # Master startup (all-in-one)
+│   ├── start_slave.sh    # Slave startup (all-in-one)
+│   ├── install.sh        # Install dependencies
+│   ├── wifi/             # Wi-Fi Ad-Hoc setup
+│   └── gadget/           # USB gadget/OTG setup
+├── kernel/
+│   └── nrf24_net/        # Kernel module (optional, advanced)
+└── docs/
+    ├── ARCHITECTURE.md   # Complete system design
+    ├── LATENCY.md        # Latency optimization guide
+    └── USB_GADGET.md     # USB gadget details
 ```
 
-Afinando ainda mais:
+---
 
-- Desativar WMM/power management via opções do módulo do driver (dependente do chipset).
-- Considerar Wi‑Fi 6/6E adaptadores USB/PCIe compatíveis com monitor/injeção para caminhos de Camada 2 (ex.: Wifibroadcast) quando latência/jitter mínimos forem mandatórios.
+## References
+
+- TSE public pentest: https://www.tse.jus.br/eleicoes/tpu
+- Linux USB Gadget: https://kernel.org/doc/html/latest/usb/gadget.html
+- USB/IP: http://usbip.sourceforge.net
+
+If you need the Raspberry Pi to appear as a USB device to a host when the real peripheral is unplugged (maintenance window), use the Linux USB Gadget subsystem:
+
+- Enable OTG and create a simple HID gadget using scripts under `scripts/gadget/`.
+- Run the minimal keepalive feeder `python3 -m gadget.hid_keepalive` to periodically send input reports and keep the host link alive.
+- See `docs/USB_GADGET.md` for details, limitations, and a systemd service example.
+
+Legal and protocol note:
+
+- Emulating a commercial device’s exact VID/PID and encrypted protocol may be restricted and technically complex. For true 1:1 emulation, you’ll need the device’s descriptors and protocol specifics; otherwise, use a generic HID presence during short maintenance windows.
